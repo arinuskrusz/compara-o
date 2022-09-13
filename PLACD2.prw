@@ -6,6 +6,8 @@
 #include "ap5mail.ch" 
 #include "RPTDEF.CH"
 
+
+
 ///////////////////////////////////////////////////////////////////////////////////////////////////////////////////
 // @Title: Picklist de Saï¿½da - MS AMBROGIO                                                                                //                                                                   
 // @Desc:                                                                                                               //                                    
@@ -16,36 +18,169 @@
 
 User Function PLACD2()
     Local  i
-    Public aTmpNms  := {}
-    Public cItemAt  := ""     //Item Atual
-    Public nVolTotl := 0.0000 //somatoria volumes
-    Public nPlTotl  := 0.0000 //somatï¿½ria peso lï¿½quido
-    Public nPbTotl  := 0.0000 //somatória peso bruto
+    Local x
+    Public aTmpNms    := {}
+    Public cItemAt    := ""     //Item Atual
+    Public nVolTotl   := 0.0000 //somatoria volumes
+    Public nPlTotl    := 0.0000 //somatï¿½ria peso lï¿½quido
+    Public nPbTotl    := 0.0000 //somatória peso bruto
+    Public cResNum    := ""
+    Public aDocsRes   := {}     //Array com todos os documentos de reserva picklist.
+    Public cDoc       := ""
+    Public aRecnz9    := {}     //todas as recnos dos registros adicionados a tabela de semaforo. Usado no momento em que o acd é encerrado
+    Public cUsrss     //usuario pedido
+    Public cUsrsprd  := "" //usuario produto
        
     Private nOp := 0
 
     Public lCntCInc := .F. //Contar caixas incompletas? (volume e qnt)
-
     Public lAddProd := .T. //Se o produto pode ser adicionado. Para casos em q a qnt é 0.0000 no momento de beepar, nao adiciona a linha ao Z8Itens.
 
+/*        DbSelectArea("SZ9")
+    SZ9->(DbGoTop())
+    For x:=1 to 1
+        RECLOCK("SZ9",.F.)
+        SZ9->(DbDelete())
+        SZ9->(MsUnlock())
+        SZ9->(DbSkip())
+    Next x */    
+    
 
     @ 0,0 VTSAY "Selecione Uma Opcao:"
     nOp:=VTaChoice(1,0,6,VTMaxCol(),{"Incluir Picklist","Visualizar Picklist"})
+/*     VTINKEY(3)
+    VTALERT("TECLA:"+str(VTLASTKEY())) */
+    
     
     If nOp == 1
         //Funï¿½ï¿½o Inicial do Picklist de Saï¿½da
         VTCLEAR()
+        //VTSetKey(27,{|| })
+
+        //Checa se o parametro MV_TIPRES é .T.
+        //Caso contrário a reserva de estoque não considera a quantidade disponível
+        //no momento.
+
+        If GetMV("MV_TIPRES") != .T.
+            VTAlert("O picklist nao pode ser iniciado devido ao parametro MV_TIPRES estar desativado.")
+            VTAlert("SOLUCAO: Contate o administrador do sistema para realizar o ajuste.")
+            Return
+        Endif
+
+        //Parametro referente a data de validade da reserva
+        If GetMv("MV_PZRESER") != 3600
+            VtAlert("Data de validade de reserva com valor padrao. Necessario alterar p/ 3600. Parametro: MV_PZRESER")
+            VTAlert("SOLUCAO: Contate o administrador do sistema para realizar o ajuste.")
+            Return
+        Endif 
+
         U_INCPLS()
+
     Elseif nOp == 2
         U_VISUPLS() //VISUALIZAR PICKLIST
+/*     Elseif nOp == 3
+        U_ADMPAR()
+        VTCLEAR() */
     Endif
 
     //Fecha todos os alias temporarios em aberto, utilizando a array aTmpNms.
     //Evita o erro Alias Aready in use
-    
     ClsTmp()
 
+
+
 Return
+
+/*/{Protheus.doc} LimpaSmf(cUsr)
+    *Limpa todos os registros adicionados referentes ao usuário.
+    @type  Function
+    @author Arinus Kruszynski de Oliveira
+    @since 19/07/2022
+    @version version
+    @param Recebe array de recnos a serem deletados do SZ9
+    @return lRet
+    @see (links_or_references)
+    /*/
+Static Function LimpaSmf(cUsr)
+    Private lRet
+
+    //VTAlert("Limpa Smf - Usuario:"+alltrim(cUsr))
+    If Select("SZ9") > 0
+        SZ9->(DbCloseArea())
+    Endif
+    DbSelectArea("SZ9")
+    DbSetOrder(3) //Filial+Usuario
+    If DbSeek(xFilial("SZ9")+cUsr)
+
+
+        While SZ9->(!Eof())
+            If alltrim(SZ9->Z9_SOLIC) == alltrim(cUsr)
+                Reclock("SZ9",.F.)
+                SZ9->(DbDelete())
+            Endif
+            SZ9->(DbSkip())
+        Enddo
+
+        lRet := .T.
+    Else
+        lRet := .F.
+    Endif
+
+
+Return lRet
+
+//////////////////////////////////////////////////////////////////
+// Função para administração do parametro de trava de produto   //
+//                                                              //
+//////////////////////////////////////////////////////////////////
+Static Function U_ADMPAR()
+    Private cProd := SPACE(TamSx3('B1_COD')[1])
+    Private bMenu := .T.
+    VTCLEAR()
+    While bMenu
+        If !empty(GetMv("MV_PLCTRL"))
+            @ 0,0 VTSAY "Insira o produto p/ exclusao."
+            @ 1,0 VTSAY "Par:"+GetMv("MV_PLCTRL")
+            @ 2,0 VTSAY "Prod:" VTGET cProd  VALID !empty(cProd)
+            VTREAD
+
+            If CheckDispo(cProd)
+                VTALERT("O produto nao esta nos parametros de trava. Selecione outro produto.")
+            Else
+                If RemovPar(cProd)
+                //VTALERT("Produto"+alltrim(cProd)+" removido.")
+                Else
+                    //VTALERT("Erro ao remover produto. Tente novamente.")
+                Endif
+            Endif
+        else
+            VTALERT("Parametro vazio. Nao existem produtos travados..")
+            Return
+        Endif  
+
+
+            VTCLEAR()
+        If !empty(GetMv("MV_PLCTRL"))        
+            @ 0,0 VTSAY "Excluir mais produto s?"
+            @ 1,0 VTSAY "Par:"+GetMv("MV_PLCTRL")
+
+            nOpyWw:=VTaChoice(2,0,6,VTMaxCol(),{"1-Sim","2-Sair"})
+            If nOpyww == 1
+                bMenu := .T.
+                cProd := SPACE(TamSx3('B1_COD')[1])
+            Else
+                bMenu := .F. //fim do loop while
+            Endif
+            VTCLEAR()
+        else
+            VTALERT("Parametro vazio. Nao existem produtos travados.")
+            Return
+        Endif
+        
+    Enddo
+
+Return
+
 
 /////////////////////////////////////////////
 // Função Visualizar Picklist de Saída   //
@@ -187,12 +322,11 @@ Static Function U_INCPLS()
     Private nPesoLli := 0 //Peso Liquido Linha
     Private aItx     := {}
     Private aChsedIt := {}
-    
-    Private nContlp :=  0
-    
-    Private cItsel  := ""
-    Private nOpc    :=  0
-    Private cPvenda := SPACE(6)  //preenche com espaï¿½os em branco de acordo com tamanho do campo
+    Private nContlp  :=  0
+    Private cItsel   := ""
+    Private nOpc     :=  0
+    Private cPvenda  := SPACE(6)  //preenche com espaï¿½os em branco de acordo com tamanho do campo
+    Private nCntndel    := 0 //contador de itens não deletados..
     
     //Arrays:
     Private aIncVB    := {} //MONTAGEM TELA VTABROWSE
@@ -210,17 +344,21 @@ Static Function U_INCPLS()
     Public aZ8Insrt   := {} //array final - array que serï¿½ passada a database.
     Public nZ8ItSq    := 01 //contagem sequencial dos itens no Z8.
 
-
     //Boleanas
-    Private bArdyAd := .F.
-    Private bSelag  := .T.
+    Private bArdyAd  := .F.
+    Private bSelag   := .T.
     Private bEmpty
-    Private bCanAdd := .F. //Permitir ou não adicionar o item a tela final.
+    Private bCanAdd  := .F. //Permitir ou não adicionar o item a tela final.
+    Private bIsDispo := .F. 
 
     Private lPular  := .F. //Correção bug ao escolher não.
     //Outros
     Private nNatOp := "" //Natureza da Operação
-    
+    Private nTrta    := 0
+    Private nTrtb    := 0
+    Private nTrtc    := 0
+
+
     @ 0,0 VTSAY "Selecione a Natureza da OP:"
     nNatOp:=VTaChoice(1,0,6,VTMaxCol(),{"Venda","Beneficiamento","Devolucao","Retrabalho","Outras Saidas"})
     VTCLEAR()
@@ -232,6 +370,14 @@ Static Function U_INCPLS()
         cNatOp := "V"
     Elseif nNatOp == 2
         cNatOp := "B" //beneficiamento
+
+        //**Inicia rotina inclusao beneficiamento**//
+	//** Em desenvolvimento **
+        INCBNF()
+		VTAlert("Rotina em desenvolvimento. Finalizando..")
+        	Return
+        //****************************************//
+
     Elseif nNatOp == 3
         cNatOp := "D" //devolução
     Elseif nNatOp == 4
@@ -266,10 +412,17 @@ Static Function U_INCPLS()
     @ 2,0 VTSAY "PdV:" VTGET cPvenda  VALID ValPVenda(cPVenda)==.T.
     VTREAD
     VTCLEAR()
-    
 
-
-    
+    //Check Pedido de Venda
+/*     If  !chkPdv(cPvenda)
+        //Se pedido bloqueado..
+        VTAlert("O pedido "+alltrim(cPvenda)+" esta em uso pelo usuario "+alltrim(cUsrss)+". Aguarde alguns minutos e tente novamente.")
+        Return
+    Else
+        //Se pedido disponível.. Adiciona ao semáforo 
+        TravaPed(cPvenda,cUsrsol)
+    Endif */
+    //asdasdasd
     IF SELECT("TMP") > 0
         TMP->(Dbclosearea())
     ENDIF
@@ -286,15 +439,42 @@ Static Function U_INCPLS()
 
     While !TMP->(Eof())
 
-        //*Qnt de Venda - Qnt Entregue (faturada sd2)
-        nQntPend = TMP->C6_QTDVEN-TMP->C6_QTDENT
-
-        //aparecer itens do pedido com qnt_pendente > 0
-        If nQntPend > 0
-            Aadd(aIncVB, {TMP->C6_ITEM,TMP->C6_NUM,TMP->C6_PRODUTO,TMP->C6_ENTREG,nQntPend})
+        //Evitar bug caso campo esteja negativo
+        //Reserva PL
+        If TMP->C6_XRESPL < 0
+            nQtResPl := 0 //qnt reservada pelo picklist
+            nTrta    := 0
+        else
+            nQtResPl := TMP->C6_XRESPL
+            nTrta    := TMP->C6_XRESPL
         Endif
 
+        //Reserva Liberação
+        If TMP->C6_QTDEMP < 0
+            nQtLibPv := 0 
+            nTrtb    := 0
+        Else
+            nQtLibPv := TMP->C6_QTDEMP
+            nTrtb    := TMP->C6_QTDEMP
+        Endif
 
+        //Qnt Faturada
+        If TMP->C6_QTDENT < 0 
+            nQtFatPv := TMP->C6_QTDENT //qnt faturada 
+            nTrtC    := 0
+        Else
+            nQtFatPv := TMP->C6_QTDENT
+            nTrtC    := TMP->C6_QTDENT
+        Endif
+
+        //nQntPend := TMP->C6_QTDVEN-TMP->C6_QTDENT-TMP->C6_QTDEMP-TMP->C6_XRESPL 
+
+        nQntPend := TMP->C6_QTDVEN-nTrta-nTrtb-nTrtc
+        
+        //aparecer itens do pedido com qnt_pendente > 0
+        If nQntPend > 0
+            Aadd(aIncVB, {TMP->C6_ITEM,TMP->C6_NUM,TMP->C6_PRODUTO,TMP->C6_ENTREG,nQntPend,TMP->C6_TES})
+        Endif
 
         TMP->(DbSkip())
     Enddo
@@ -330,12 +510,15 @@ Static Function U_INCPLS()
             nPos := 1 
             nChoose  := VTaBrowse(0,0,6,31,aCab,aItens,aSize)
             
+            cTes := aIncVB[nChoose,6]
+            //VTAlert("cTes:"+cTes)
             //cDtEnt := dToC(StoD(aIncVB[nChoose,4]))
             
             //MsgAlert("DtEnt:"+dToC(StoD(aIncVB[nChoose,4])))
 
             VTCLEAR()
             
+
             //checa se o usuario já selecionou o item do pedido de venda
             If CheckDup(StrZero(nChoose,2),aReadyad)
                 cItemAt := strzero(nChoose,2)
@@ -344,12 +527,33 @@ Static Function U_INCPLS()
             Else
                 cItemAt := strzero(nChoose,2)
                 bCanAdd := .T.
+                bIsDispo := .T.
                 aAdd(aReadyad,StrZero(nChoose,2)) //Log dos itens adicionados
+
+/*              If chkProd(aIncVB[nChoose,3],cUsrSol)
+                    //Produto disponível..
+                    //VTALERT("Produto "+aIncVB[nChoose,3]+" disponível. ")
+                    bIsDispo := .T.
+                    aAdd(aReadyad,StrZero(nChoose,2)) //Log dos itens adicionados
+                Else
+                    //Produto não disponível..
+                    //VTAlert("cUsrSol:"+valtype(cUsrSol)+"-IncVb[nChoose,3]:"+valtype(aIncVB[nChoose,3]))
+                    VTALERT("O produto "+aIncVB[nChoose,3]+" esta bloqueado temporariamente. Aguarde o usuario "+cUsrsprd+" encerrar o picklist.","Pressione Enter")
+                    bIsDispo := .F.
+                Endif */
+
+                //**********************************************************************************
+                //**********************************************************************************
+                
             Endif
+
+
+
+
 
             //Realiza consulta Sql Lote x Endereço e adiciona ao menu final.
             //Caso o item for duplicado, pula para "adicionar mais itens" e nao exibe menu de adicionados.
-            If bCanAdd
+            If bCanAdd .AND. bIsDispo
 
                 VTCLEAR()
 
@@ -377,7 +581,7 @@ Static Function U_INCPLS()
                     //cria tabela e adiciona o nome real a array
                     //aTmpNMS := {Produto,Tabela,Alias}
                     //VTALERT("A tabela nao existe.. Criando e adicionando log")
-                    aAdd(aTmpNms,{alltrim(cCodMP),LxeTmp(cCodMP),cAliasNam})
+                    aAdd(aTmpNms,{alltrim(cCodMP),LxeTmp(cCodMP,cPvenda,cUsrSol),cAliasNam})
                     nPosTble := ASCAN(aTmpNms,{|x| x[1]== alltrim(cCodMP) })
                     cTableEx := aTmpNms[nPosTble,2]
                 Endif
@@ -502,7 +706,6 @@ Static Function U_INCPLS()
                                             nIncVol := 1 
                                             nPesoBli += (nTmpPbrt * nCxInc)/ nQntEmb
                                             nPesoLli += (nTmpPliq * nCxInc)/ nQntEmb
-
                                         Else
                                             nIncVol := 0
                                         EndIf
@@ -510,7 +713,7 @@ Static Function U_INCPLS()
                                         
                                         //* lCntcInc := Se contagem caixa incompleta estiver ativado
                                         If lCntCInc
-                                            Aadd(aZ8Itens,{cCodMp,cDesc,cUm,cArmz,cLote,cEnd,cSaldoli,nTmpPliq,nTmpPbrt,nNumCx,nCxInc,cItemOrig,dToC(StoD(aIncVB[nChoose,4])),lCntCInc})
+                                            Aadd(aZ8Itens,{cCodMp,cDesc,cUm,cArmz,cLote,cEnd,cSaldoli,nTmpPliq,nTmpPbrt,nNumCx,nCxInc,cItemOrig,dToC(StoD(aIncVB[nChoose,4])),lCntCInc,0.00,cTes})
                                         Else
 
                                             //* Se caixa incompleta estiver desativada, subtrai caixa inc 
@@ -519,7 +722,7 @@ Static Function U_INCPLS()
                                             Endif
                                             
                                             if lAddProd != .F.
-                                                Aadd(aZ8Itens,{cCodMp,cDesc,cUm,cArmz,cLote,cEnd,cSaldoli-nCxInc,nTmpPliq,nTmpPbrt,nNumCx,0.000,cItemOrig,dToC(StoD(aIncVB[nChoose,4])),lCntCInc})
+                                                Aadd(aZ8Itens,{cCodMp,cDesc,cUm,cArmz,cLote,cEnd,cSaldoli-nCxInc,nTmpPliq,nTmpPbrt,nNumCx,0.000,cItemOrig,dToC(StoD(aIncVB[nChoose,4])),lCntCInc,0.00,cTes})
                                             Endif
                                         Endif
                                     
@@ -576,10 +779,8 @@ Static Function U_INCPLS()
 
             Endif            
 
-
-
             //BeepQr(aZ8Itens) //Tela para beepar itens pelo QR ou Manual.
-            If !bCanAdd
+            If !bCanAdd .OR. !bIsDispo
                 @ 0,0 VTSAY "Tentar outro item?"
             Else
                 @ 0,0 VTSAY "Adicionar mais itens ?"
@@ -598,96 +799,135 @@ Static Function U_INCPLS()
             Elseif nOpy == 2
                 bSelag := .F.
 
-            
+                //Tira os semaforos.. Pois ou o usuario aborta a operacao ou adiciona o picklist.
+                //Nao ha como voltar a tela de distribuição.
+                //LimpaSmf(cUsrsol)
                 @ 0,0 VTSAY "Confirma a inclusao?"
                 nOpcy:=VTaChoice(1,0,3,VTMaxCol(),{"Sim","Nao"})
-                if nOpcy == 1
-                    If len(aZ8Itens) != 0
-                        aZ8Insrt := aClone(aZ8Itens)    //aZ8Insrt copia da aZ8Itens
-
-                        //Incluindo Cabeï¿½alho
-                        RECLOCK("SZ7",.T.) ///// .T. QDO INCLUSÃO, .F. QNDO ALTERAÇÃO
-                        REPLACE SZ7->Z7_FILIAL WITH FWFilial()
-                        REPLACE SZ7->Z7_NUM WITH cNumsoli
-                        REPLACE SZ7->Z7_DATA WITH Date()
-                        REPLACE SZ7->Z7_SOLIC WITH cUsrsol
-                        REPLACE SZ7->Z7_HORA WITH Time()
-                        REPLACE SZ7->Z7_STATUS WITH cStatus
-                        REPLACE SZ7->Z7_PEDIDO WITH aIncVB[1,2] //1 pq a variavel ï¿½ preenchida com smnt 1 pdv
-                        REPLACE SZ7->Z7_QVOL WITH nVolTotl
-                        REPLACE SZ7->Z7_PESOL WITH nPlTotl
-                        REPLACE SZ7->Z7_PESOB WITH nPbTotl 
-                        REPLACE SZ7->Z7_NATOP WITH cNatop
-
-                        SZ7->(MSUNLOCK())
-
-                        //ADICIONA SZ8 ITENS
-                        nMxItens := len(aZ8Insrt) //pega total de itens selecionados
-
-                        //z8itens{codmp,desc,um,arm,lote,end,qnt}
-                        //1 cCodMp,2 cDesc,3 cUm,4 cArmz 05,TMP->B8_LOTECTL 06,TMP->BF_LOCALIZ 07,TMP->B8_SALDO 08,nTmpPliq 09,nTmpPbrt10,nNumCx 11,nCxInc 12
-                        For q:= 1 To nMxItens
-                            //7=Qnt, 11=Qnt caixa incompleta, 14=Considerar Inc?
-                            //Se nao houver caixas completas e houver caixa incompleta e Considerar Inc == .F.
-
-                            RECLOCK("SZ8",.T.) ///// .T. QDO ï¿½ INCLUSï¿½O, .F. QDO ï¿½ ALTERAï¿½ï¿½O
-                            REPLACE SZ8->Z8_FILIAL WITH FWFilial()
-                            REPLACE SZ8->Z8_NUM WITH cNumsoli
-                            REPLACE SZ8->Z8_ITEM WITH StrZero(q,2)
-                            REPLACE SZ8->Z8_CODMP WITH Upper(aZ8Insrt[q,1])
-                            REPLACE SZ8->Z8_DESC WITH aZ8Insrt[q,2]
-                            REPLACE SZ8->Z8_UM WITH aZ8Insrt[q,3]
-                            REPLACE SZ8->Z8_ARMZ WITH aZ8Insrt[q,4]
-                            REPLACE SZ8->Z8_QUANT WITH aZ8Insrt[q,7]
-                            REPLACE SZ8->Z8_LOTE WITH Upper(aZ8Insrt[q,5])
-                            REPLACE SZ8->Z8_LOCALIZ WITH Upper(aZ8Insrt[q,6])
-                            REPLACE SZ8->Z8_PESOL WITH aZ8Insrt[q,8]
-                            REPLACE SZ8->Z8_PESOB WITH aZ8Insrt[q,9]
-                            REPLACE SZ8->Z8_QCXC WITH aZ8Insrt[q,10]
-                            REPLACE SZ8->Z8_QNTINC WITH aZ8Insrt[q,11]
+                
+                    if nOpcy == 1
+                        If len(aZ8Itens) != 0
+                            aZ8Insrt := aClone(aZ8Itens)    //aZ8Insrt copia da aZ8Itens
                             
+                            //Adiciona saldo ao empenho.. A propria função checa
+                            //se a linha já está empenhada.
+                            //Empenhou altera aZ8Insrt linha 15 para .T.
+                            //Por padrão a linha 15 começa como .F..
+                            //VTALERT("a1")
+                            //Incluindo Cabeï¿½alho
+                            RECLOCK("SZ7",.T.) ///// .T. QDO INCLUSÃO, .F. QNDO ALTERAÇÃO
+                            REPLACE SZ7->Z7_FILIAL WITH FWFilial()
+                            REPLACE SZ7->Z7_NUM WITH cNumsoli
+                            REPLACE SZ7->Z7_DATA WITH Date()
+                            REPLACE SZ7->Z7_SOLIC WITH cUsrsol
+                            REPLACE SZ7->Z7_HORA WITH Time()
+                            REPLACE SZ7->Z7_STATUS WITH cStatus
+                            REPLACE SZ7->Z7_PEDIDO WITH aIncVB[1,2] //1 pq a variavel ï¿½ preenchida com smnt 1 pdv
+                            REPLACE SZ7->Z7_QVOL WITH nVolTotl
+                            REPLACE SZ7->Z7_PESOL WITH nPlTotl
+                            REPLACE SZ7->Z7_PESOB WITH nPbTotl 
+                            REPLACE SZ7->Z7_NATOP WITH cNatop
 
-                            REPLACE SZ8->Z8_ITPDV WITH aZ8Insrt[q,12]
-                            REPLACE SZ8->Z8_DATENT WITH STod(aZ8Insrt[q,13])
+                            SZ7->(MSUNLOCK())
 
-                            //Salva qual a escolha do usuário no input da linha ACD.
-                            If  aZ8Insrt[q,14]
-                                REPLACE SZ8->Z8_OPINC WITH "Sim"
+                            //ADICIONA SZ8 ITENS
+                            nMxItens := len(aZ8Insrt) //pega total de itens selecionados
+                            //VTALERT("a2")
+                            //z8itens{codmp,desc,um,arm,lote,end,qnt}
+                            //1 cCodMp,2 cDesc,3 cUm,4 cArmz 05,TMP->B8_LOTECTL 06,TMP->BF_LOCALIZ 07,TMP->B8_SALDO 08,nTmpPliq 09,nTmpPbrt10,nNumCx 11,nCxInc 12
+                            nCot := 1
+                            For q:= 1 To nMxItens
+                                //Se nao houver caixas completas e houver caixa incompleta e Considerar Inc == .F.
+                                
+                                //AdResLin -> Tenta adicionar reserva a partir das informações contidas na linha do Pl
+                                //Caso nao consiga reservar, pode indicar indisponibilidade de estoque
+                                    //VTALERT("a3")
+                                    
+                                    If AdResLin(aZ8Insrt[q,1],aZ8Insrt[q,5],aZ8Insrt[q,6],aZ8Insrt[q,7],cNumSoli,aZ8Insrt[q,12],cPvenda,cUsrsol,StrZero(q,2),"V")
+                             
+                                        RECLOCK("SZ8",.T.) ///// .T. QDO ï¿½ INCLUSï¿½O, .F. QDO ï¿½ ALTERAï¿½ï¿½O
+                                        REPLACE SZ8->Z8_FILIAL WITH FWFilial()
+                                        REPLACE SZ8->Z8_NUM WITH cNumsoli
+                                        REPLACE SZ8->Z8_ITEM WITH StrZero(nCot,2)
+                                        //vtalert("strzero:"+StrZero(q,2))
+                                        REPLACE SZ8->Z8_CODMP WITH Upper(aZ8Insrt[q,1])
+                                        REPLACE SZ8->Z8_DESC WITH aZ8Insrt[q,2]
+                                        REPLACE SZ8->Z8_UM WITH aZ8Insrt[q,3]
+                                        REPLACE SZ8->Z8_ARMZ WITH aZ8Insrt[q,4]
+                                        REPLACE SZ8->Z8_QUANT WITH aZ8Insrt[q,7]
+                                        REPLACE SZ8->Z8_LOTE WITH Upper(aZ8Insrt[q,5])
+                                        REPLACE SZ8->Z8_LOCALIZ WITH Upper(aZ8Insrt[q,6])
+                                        REPLACE SZ8->Z8_PESOL WITH aZ8Insrt[q,8]
+                                        REPLACE SZ8->Z8_PESOB WITH aZ8Insrt[q,9]
+                                        REPLACE SZ8->Z8_QCXC WITH aZ8Insrt[q,10]
+                                        REPLACE SZ8->Z8_QNTINC WITH aZ8Insrt[q,11]
+                                        REPLACE SZ8->Z8_ITPDV WITH aZ8Insrt[q,12]
+                                        REPLACE SZ8->Z8_DATENT WITH STod(aZ8Insrt[q,13])
+                                        REPLACE SZ8->Z8_TES WITH aZ8Insrt[q,16]
+                                    
+                                        //Salva qual a escolha do usuário no input da linha ACD.
+                                        If  aZ8Insrt[q,14]
+                                            REPLACE SZ8->Z8_OPINC WITH "Sim"
+                                        Else
+                                            REPLACE SZ8->Z8_OPINC WITH "Nao"
+                                        Endif
+                                    
+                                        //Flag se a linha foi empenhada ou não.
+                                        REPLACE SZ8->Z8_QEMP WITH aZ8Insrt[q,7]
+
+                                        REPLACE SZ8->Z8_DOCRES with cDoc
+                                        
+                                        //1 cCodMp,2 cDesc,3 cUm,4cArmz,5 TMP->B8_LOTECTL,6 TMP->BF_LOCALIZ,7 TMP->B8_SALDO,8 nTmpPliq,nTmpPbrt,nNumCx,nCxInc
+                                        SZ8->(MSUNLOCK())
+                                   
+                                        nCot++
+                                    else
+                                        //Conta quantos itens não foram reservados.
+                                        //Se todos os itens nao foram reservados, não adiciona o Picklist.
+                                        nCntndel++
+
+                                        VTALERT("Erro ao reservar item "+StrZero(q,2)+". O item nao sera adicionado ao PL.")
+                                    Endif
+
+                            Next
+
+
+                            If nCntnDel == nMxItens
+                                //Se nenhum item puder ser adicionado  
+                                RollBackSx8()
+                                VTAlert("Nenhum item pode ser adicionado devido a indisponibilidade de saldo. Abortando inclusão picklist..","Pressione Enter")
+                                VTCLEAR()
+                                Return
                             Else
-                                REPLACE SZ8->Z8_OPINC WITH "Nao"
+                                ConfirmSx8()
+                            EndIf
+                            
                             Endif
 
-                            //1 cCodMp,2 cDesc,3 cUm,4cArmz,5 TMP->B8_LOTECTL,6 TMP->BF_LOCALIZ,7 TMP->B8_SALDO,8 nTmpPliq,nTmpPbrt,nNumCx,nCxInc
-                            SZ8->(MSUNLOCK())
-                
-                        Next 
+                            VTCLEAR()
+                            //Adiciona empenho nos produtos utilizados no picklist.
+                            ConfirmSx8()
+                            VTALERT("PL Saida num "+cNumSoli+" adicionado.","Sucesso",.T.,4000)
+                            //Apï¿½s adicionar, envia a notificaï¿½ï¿½o automï¿½tica via e-mail
+                            cData := DtoC(Date()) //data
+                            cHora := Time() //hora
+                            VTALERT("Enviando Notificacao Automatica via E-mail..","Aguarde",.T.,4000)
+                            AutoEml(cNumsoli,cData,cHora,cUsrsol,aIncVB[1,2],aZ8Insrt,cStatus)
+                            //Obs: as tabelas temporarias sao encerradas na função principal.
 
-                        ConfirmSx8()
-                        VTCLEAR()
-                        VTALERT("Pl Saida num "+cNumSoli+" adicionado.","Sucesso",.T.,4000)
+                        Else
+                            RollBackSx8()
+                            VTALERT("O picklist nao pode ser adicionado. MOTIVO: Nenhum item adicionado.")
+                        Endif
 
-                        //Apï¿½s adicionar, envia a notificaï¿½ï¿½o automï¿½tica via e-mail
-                        cData := DtoC(Date()) //data
-                        cHora := Time() //hora
-
-                        VTALERT("Enviando Notificacao Automatica via E-mail..","Aguarde",.T.,4000)
-                        //MsgRun("Enviando Notificação Automática ao Dpto Fiscal..","Aguarde...",{|| InKey(4),AutoEml(cNumsoli,cData,cHora,cUsrsol,aIncVB[1,2],aZ8Insrt,cStatus) })
-                        
-                        AutoEml(cNumsoli,cData,cHora,cUsrsol,aIncVB[1,2],aZ8Insrt,cStatus)
-                        
-                        //Obs: as tabelas temporarias sao encerradas na função principal.
-                    Else
-                        VTALERT("O picklist nao pode ser adicionado. MOTIVO: Nenhum item adicionado.") 
+                    Elseif nOpcy ==2
+                        RollbackSx8()
+                        VTALERT("Abortado pelo usuario. Inclusao nao realizada","Finalizando",.T.,4000)
+                        Return
                     Endif
 
-                Elseif nOpcy ==2
-                    RollbackSx8()
-                    VTALERT("Abortado pelo usuario. Inclusao nao realizada","Finalizando",.T.,4000)
-                    //VTALERT("Retornando função..")
-                    //Finaliza execução
-                    Return
-                Endif
-            Endif
+
+            
             
         Enddo
         
@@ -695,8 +935,12 @@ Static Function U_INCPLS()
 
         VTCLEAR()
     else
-        VTALERT("Nenhum registro encontrado com o numero "+cPVenda,"PedidoDVenda Invalido/Vazio",.T.,2000)
+        VTALERT("Nenhum registro encontrado com o numero "+cPVenda,"Pedido De Venda Invalido/Vazio",.T.,2000)
         VTCLEAR()
+        //Limpa semaforo usuario
+        //LimpaSmf(RetCodUsr())
+        RollBackSx8()
+        //LimpaSmf(cUsrsol)
 
     Endif
 
@@ -704,9 +948,505 @@ Static Function U_INCPLS()
 Return
 
 
+
+
+/*/{Protheus.doc} U_INCBNF
+    Inclui picklist do tipo beneficiamento.
+    A inclusão acontece via beep qrcode + dados preenchidos manualmente.
+    Apos inclusao os pedidos de venda são criados automaticamente. Caso a opcao
+    remessa seja escolhida, são criados 2 pedidos: 1 com os produtos e outro com as embalagens.
+    @type  User Function
+    @author Arinus K. de Oliveira
+    @since 26/07/2022
+    /*/
+Static Function INCBNF()
+    Private q
+    //Utils
+    Private lMnMenu  := .T.
+    //Codigo Fornecedor
+    Private cCodF    := SPACE(TamSx3('A2_COD')[1])   //codigo de fornecedor..
+    Private cBqrc    := SPACE(45)
+    //Opcao Usuario..
+    Private nOpcy    := 0
+    //Array QrCode
+    Private aBeef     := {}
+    //Campos Commit
+    Private cNatOp    := "B" //Natureza Operacao
+    //Itens PL
+    Private nItPl     := 1
+    Private aZ8Itens  := {} //Item,Prod,Desc,U.M,Armazem,Localização,Lote,Qnt,PesolLin,PesobLin,Qnt Caixas,Qnt Caixa Inc,Data de Entrega,Item Pdv,OpcUsucx,Qnt Res, Doc Res, Cod For, Cod Trans, Op Usr Rem
+    //Vars Pedido
+/*     Private _aItemPV := {} //Itens Pedido
+    Private _aCabPV  := {} //Cabeçalho Pedido */
+    //Vars PL
+    Private cProd     := "" //Produto
+    Private cDesc     := "" //Descrição
+    Private cUm       := "" //U.M
+    Private cLocal    := "" //Armazem
+    Private cEnd      := SPACE(TamSx3('BF_LOCALIZ')[1]) //Endereço
+    Private cLote     := "" //Lote
+    Private nQtde     := 0  //Quantidade
+    Private nPesoll   := 0.000  //Peso Liquido Linha Numerico
+    Private nPesobl   := 0.000 //Peso Bruto Linha Numerico
+    Private nNumCx    := 0  //Quantidade de Caixas
+    Private nNumCxX   := 0 //Numero de caixas quando prod/lote/end repetido
+    Private nCxInc    := 0.0000  //Caixa Incompleta (qnt) se houver
+    Private cDatEnt   := ""
+    Private cCodTrans := ""
+    Private nRepEm    := 0
+    //Logicos
+    Private lBpinv   := .F.
+    //Cabeçalho
+    Private nVolCab := 0
+    Private nPlCab  := 0
+    Private nPbCab  := 0
+    
+
+    //Aadd(aZ8Itens,{cCodMp,cDesc,cUm,cArmz,(cAliasNam)->LOTE,(cAliasNam)->LOCALIZ,(cAliasNam)->SALDO,nTmpPliq,nTmpPbrt,nNumCx,nCxInc,cItemOrig,dToC(StoD(aIncVB[nChoose,4])),lCntCInc,0.00})
+    //Produto,Desc,Um,Armazem,Lote,Endereço,QtdLinha,PesoLiqLine,PesoBrutoLdine,Caixas,Qtd Caixa Inc (se existir),DataEntrega,etc
+    
+    While lMnMenu
+        lBpInv := .F. //reset
+        aBeef  := {}
+
+        //1- Beep
+        //2- Se beep valido, continua para adicionar mais itens.
+        //3- Adicionar mais itens?
+        //4- Confirmar picklist?
+
+        @ 0,0 VTSAY "Insira o codigo de fornecedor:"
+        @ 2,0 VTSAY "CF:" VTGET cCodf VALID ValFornec(cCodf)
+        VTREAD
+        VTCLEAR()
+
+        //Puxa Código Transportadora
+        If Select("SA2") > 0
+            SA2->(DbCloseArea())
+        Endif
+
+        DbSelectArea("SA2")
+        DbSetOrder(1)
+        If SA2->(DbSeek(xFilial("SA2")+cCodF+""))
+            cCodTrans := SA2->A2_TRANSP
+        Else
+            VtAlert("Codigo de Transportadora nao encontrado.")    
+        Endif
+
+        VTALERT("Para adicionar itens realize o beep do QrCode correspondente.","Pressione Enter")
+
+        aBeef := BeepBnf()
+
+        If aBeef != NiL
+            //aBeef := Produto,Qtde,Lote
+            cProd  := PADR(aBeef[1,1],TamSx3('B1_COD')[1])
+            nQtde  := aBeef[1,2]
+            cLote  := aBeef[1,3]
+            cLocal := "01" 
+
+            If Select("SB1") > 0
+                SB1->(DbCloseArea())
+            EndIf
+
+            DbSelectArea("SB1")
+            DbSetOrder(1) //Filial+Cod
+            If !DbSeek(xFilial("SB1")+cProd)
+                VTAlert("Inconsistencia produto. Finalizando..")
+                Return
+            Endif
+
+            //Descrição
+            If !empty(SB1->B1_DESC)
+                cDesc := SB1->B1_DESC
+            Else
+                cDesc := ""
+            Endif
+
+            //U.M
+            If !empty(SB1->B1_UM)
+                cUm := SB1->B1_UM
+            Else
+                cUm := ""    
+            Endif
+
+            //Qnt Por Embalagem
+            If !empty(SB1->B1_QE)
+                nQtEmb := SB1->B1_QE
+            else
+                nQtEmb := 0
+                VTAlert("Produto sem quantidade por embalagem cadastrada.")
+            Endif
+
+            If alltrim(cUm) == "MIL"
+                //Se MiL-> Qnt * Peso L Pç
+                //VTAlert("MIL")
+                nPesoll := SB1->B1_PESO*nQtde//Peso Liquido Peça*Qtde / Prod,qnt,lote
+            Elseif alltrim(cUm) == "KG"
+                //VTAlert("KG")
+                //Se Kg
+                nPesoll := nQtde            //Para KG, PesoLiquido := Quantidade
+                //VTAlert("nPesoll:"+str(nPesoll))
+            EndIf
+
+            //Peso Bruto Manual
+            @ 0,0 VTSAY "Insira o Peso Bruto:"
+            @ 2,0 VTSAY "PB:" VTGET nPesobl
+            VTREAD
+            VTCLEAR() 
+            
+            //Endereço
+            @ 0,0 VTSAY "Insira o endereco."
+            //TamSx3('BF_LOCALIZ')[1]
+            @ 2,0 VTSAY "End:" VTGET cEnd VALID ValEnd(cEnd) 
+            VTREAD
+            VTCLEAR()
+
+            //Remessa para embalagem:
+            @ 0,0 VTSAY "Remessa para Embalagem?"
+            nOprem:=VTaChoice(1,0,3,VTMaxCol(),{"Sim","Nao"})
+            VTREAD
+            VTCLEAR() 
+
+            //Calculo Qnt de Caixas - SZ8
+            nNumCx  := NoRound(nQtde / nQtEmb , 0)
+
+            //Cabeçalho Picklist..
+/*             nVolCab += nNumCx  * 1
+            nPlCab  += nPesoll * nNumCx
+            nPbCab  += nPesobl * nNumCx */
+            
+            //**AGLUTINA**
+            //Se já existir produto+lote+endereço+um na array insere na mesma posição e aglutina
+            //somente o campo quantidade.
+            nPosB := ASCAN(aZ8Itens,{|x| x[1]==cProd .AND. x[3]==cUm .AND. x[5]==cLote .AND. x[6]==cEnd})
+
+            If nPosB != 0
+                //**Encontrado Prod/Um/Lote/Endereço**
+
+                aZ8Itens[nPosB,7]  := aZ8Itens[nPosB,7]  + nQtde      //Soma Quantidade
+                aZ8Itens[nPosB,8]  := nPesoll   //Soma Peso Liquido Linha
+                aZ8Itens[nPosB,9]  := nPesobl  //Soma Peso Bruto Linha
+                aZ8Itens[nPosB,10] := aZ8Itens[nPosB,10] + nNumCxX  //Soma Numero de Caixas..
+
+                //Calculo Qnt de Caixas - SZ8
+                nNumCxX  := NoRound(nQtde/ nQtEmb , 0)
+                
+                //Soma no cabeçalho Peso Líquido e Peso Bruto Linha
+                nPlTotl  += nPesoll * nNumCxX
+                nPbTotl  += nPesobl * nNumCxX
+
+                //Soma Volume
+                nVolTotl += nNumCxx
+
+                //VTAlert("nPlCab:"+str(nPlCab)+"-nPbCab:"+str(nPbCab)+"-nNumCx:"+str(nNumCxX))
+         
+                VTAlert("A quantidade sera aglutinada a linha ja existente no PL. (Prod/Um/Lote/End ja existentes).","Pressione Enter")
+            Else
+                //**nao encontrado**
+                
+                //**Calculo Qnt de Caixas - SZ8
+                nNumCxX  := NoRound(nQtde / nQtEmb , 0)
+
+                //Soma no cabeçalho Peso Líquido e Peso Bruto
+                nPlTotl  += nPesoll * nNumCxX
+                nPbTotl  += nPesobl * nNumCxX
+
+                //Soma Volume
+                nVolTotl += nNumCxx
+
+                aAdd(aZ8Itens,{cProd,cDesc,cUm,cLocal,cLote,cEnd,nQtde,nPesoll,nPesobl,nNumCx,nCxInc,"",cDatEnt,.F.,0.00,cTes})
+            
+            EndIf
+
+            //**FIM AGLUTINA**
+
+            //Itera Contador Item
+            nItPl    := nItPl++   
+
+        Else
+            //Se beep for invalido..
+            lBpInv := .T.
+        Endif
+
+            //Monta tela com os itens adicionados..
+            //1-aPrep[q] := {strZero(nConte,2),aZ8Itens[q,1],aZ8Itens[q,2],aZ8Itens[q,3],aZ8Itens[q,4],aZ8Itens[q,5],aZ8Itens[q,6],Transform(aZ8Itens[q,7],"@R 99999999999.9999"),Transform(aZ8Itens[q,8],"@R 99999999999.999"),Transform(aZ8Itens[q,9],"@R 99999999999.999")}
+            //Item,prod,
+            TelaSZ8(aZ8Itens)
+
+        //Adicionar mais itens?
+        @ 0,0 VTSAY "Adicionar mais itens?"
+        nOpcz:=VTaChoice(1,0,3,VTMaxCol(),{"Sim","Nao"})
+        If nOpcz == 1
+            lMnMenu := .T.
+
+            //Reseta variaveis..
+            cBqrc    := SPACE(45)                        //QrCode
+            nPesobl  := 0                               //Peso Bruto Linha
+            cEnd     := SPACE(TamSx3('BF_LOCALIZ')[1]) //Endereço
+
+        Elseif nOpcz == 2
+            lMnMenu := .F.
+        Endif
+
+    EndDo
+
+    //Inclusão Picklist + Criação dos Pedidos de Venda
+    //Adicionar mais itens?
+    VTCLEAR()
+    @ 0,0 VTSAY "Confirma inclusao?"
+    nOpcp:=VTaChoice(1,0,3,VTMaxCol(),{"Sim","Nao"})
+    If nOpcp == 1
+        
+        //Se nenhum item foi adicionado..
+        if len(aZ8Itens) == 0
+            VTAlert("O picklist nao sera adicionado. MOTIVO: Nenhum item adicionado.")
+            Return
+        Endif
+        
+        //Se remessa, cria 2 pedidos de venda, 1 para os produtos e outro para emb
+        If nOprem == 1
+            //Opcao 1 - Criação de 1 pedido para os produtos e 1 pedido para as embalagens.
+            CriaPdv(aZ8Itens,"R")
+
+        Elseif nOprem == 2
+            //Cria 1 pedido de venda para os produtos...
+            cDc := CriaPdv(aZ8Itens,"N")
+            //VTAlert("cDc:"+cDc)
+
+            If !empty(cDc) //se função retornar o numero do documento..
+                //**Inclusão do Picklist**
+                aZ8Insrt := AClone(aZ8Itens)
+                cNumSoli := GetSxeNum("SZ7", "Z7_NUM")
+                cUsrsol := FwGetUserName(RetCodUsr())
+                cData := DtoC(Date()) //data
+                cHora := Time() //hora
+
+                SZ7->(DbGoBottom())
+                SZ8->(DbGoBottom())
+
+                RECLOCK("SZ7",.T.) ///// .T. QDO INCLUSÃO, .F. QNDO ALTERAÇÃO
+                REPLACE SZ7->Z7_FILIAL WITH FWFilial()
+                REPLACE SZ7->Z7_NUM WITH cNumsoli
+                REPLACE SZ7->Z7_DATA WITH Date()
+                REPLACE SZ7->Z7_SOLIC WITH cUsrsol
+                REPLACE SZ7->Z7_HORA WITH Time()
+                REPLACE SZ7->Z7_STATUS WITH "A"
+                REPLACE SZ7->Z7_PEDIDO WITH cDc 
+                REPLACE SZ7->Z7_QVOL WITH nVolTotl
+                REPLACE SZ7->Z7_PESOL WITH nPlTotl
+                REPLACE SZ7->Z7_PESOB WITH nPbTotl
+                REPLACE SZ7->Z7_NATOP WITH "B"
+                SZ7->(MSUNLOCK())
+
+                //1-Prod,2-Desc,3-Um,4-Local,5-Lote,6-Endereço,7-Qnt,8-PesoLiquido,9-Peso Bruto,10-Num Caixas,11-Caixa inc,12-X,13-Data Entrega
+                For q:=1 To Len(aZ8Itens)
+                    //1-Prod,2-Desc,3-Um,4-Local,5-Lote,6-Endereço,7-Qnt,8-PesoLiquido,9-Peso Bruto,10-Num Caixas,11-Caixa inc,12-X,13-Data Entrega
+                    
+                    //1-Produto,2-Lote,3-Endereço,4-Qnt,5-Num PL,6-Item Pdv,7-Pedido,Usuario,8-Item Picklist
+                    If AdResLin(aZ8Insrt[q,1],aZ8Insrt[q,5],aZ8Insrt[q,6],aZ8Insrt[q,7],cNumSoli,aZ8Insrt[q,12],cPvenda,cUsrsol,StrZero(q,2),"B")
+                        //Se posição 
+                        RECLOCK("SZ8",.T.) 
+                        REPLACE SZ8->Z8_FILIAL WITH FWFilial()
+                        REPLACE SZ8->Z8_NUM WITH cNumsoli
+                        REPLACE SZ8->Z8_ITEM WITH StrZero(q,2)
+                        REPLACE SZ8->Z8_CODMP WITH Upper(aZ8Insrt[q,1])
+                        REPLACE SZ8->Z8_DESC WITH aZ8Insrt[q,2]
+                        REPLACE SZ8->Z8_UM WITH aZ8Insrt[q,3]
+                        REPLACE SZ8->Z8_ARMZ WITH aZ8Insrt[q,4]
+                        REPLACE SZ8->Z8_QUANT WITH aZ8Insrt[q,7]
+                        REPLACE SZ8->Z8_LOTE WITH Upper(aZ8Insrt[q,5])
+                        REPLACE SZ8->Z8_LOCALIZ WITH Upper(aZ8Insrt[q,6])
+                        REPLACE SZ8->Z8_PESOL WITH aZ8Insrt[q,8]
+                        REPLACE SZ8->Z8_PESOB WITH aZ8Insrt[q,9]
+                        REPLACE SZ8->Z8_QCXC WITH aZ8Insrt[q,10]
+                        REPLACE SZ8->Z8_QNTINC WITH aZ8Insrt[q,11]
+                        REPLACE SZ8->Z8_ITPDV WITH aZ8Insrt[q,12]
+                        REPLACE SZ8->Z8_DATENT WITH STod(aZ8Insrt[q,13])
+                        REPLACE SZ8->Z8_DOCRES WITH cDoc
+                        
+                        SZ8->(MsUnlock())
+                    Else
+                        VTALERT("Erro ao reservar item "+StrZero(q,2)+". O item nao sera adicionado ao PL.")
+                    Endif
+                    
+                Next q
+
+                ConfirmSx8()
+                
+                VTAlert("Picklist n-"+alltrim(cNumSoli)+" e Pedido de Venda n-"+alltrim(cDoc)+" adicionado.","Sucesso",.T.,3000)
+
+                //**E-mail automático           
+                AutoEml(cNumsoli,cData,cHora,cUsrsol,cDoc,aZ8Insrt,"A")
+                VTAlert("Notificacao via e-mail enviada: [ACD]Notificacao Automatica-Picklist de Saida N-"+alltrim(cNumSoli)+"-Hora:"+cHora)
+            Else
+                VTAlert("O picklist nao sera adicionado MOTIVO: Erro ao incluir pedido(s) de venda. ")    
+            Endif
+            
+        Endif
+
+
+        
+    Elseif nOpcp == 2
+        //Aborta inclusão picklist
+        VTAlert("Abortado pelo usuario. Inclusao nao realizada.","Finalizando...",.T.,4000)
+        Return
+    Endif
+
+Return
+
+
 /* @@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@
    @@@@@@@@ Funï¿½ï¿½es utilitï¿½rias: @@@@@@@
    @@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@ */
+
+
+
+////////////////////////////////////////////////////////////////////////////
+//Função CriaPdv                                                          //
+//Inclui pedido de venda com base nos itens beepados/adicionados do PL de //
+//beneficiamento                                                          //
+//Par: Array Grid Itens, Tipo Pedido (N-Normal,R-Remessa)                 //
+//Ret: Numero do pedido de venda.                                         //
+////////////////////////////////////////////////////////////////////////////
+
+Static Function CriaPdv(aZ8Itens,cTipoPd)
+    Local nLinha    := 1
+    Local aCabec    := {}
+    Local aItens    := {}
+    Local aErroAuto := {}
+    Local aItens    := {}
+    Local nCount    := {}
+    Private nPrcVen := 1
+    Private lRt 
+
+    Private lMsErroAuto    := .F.
+    Private lAutoErrNoFile := .F.
+
+    cDoc := GetSxeNum("SC5", "C5_NUM")
+
+    //Criação de 1 Pedido Normal - Apenas Produtos
+    If cTipoPd == "N"
+        //****************************************************************
+        //* Inclusao - INÍCIO                                            *
+        //****************************************************************
+        aCabec := {}
+        aItens := {}
+        aLinha := {}
+        aAdd(aCabec, {"C5_NUM",     cDoc,        Nil})
+        aAdd(aCabec, {"C5_TIPO",     "N",        Nil})
+        aAdd(aCabec, {"C5_CLIENTE",  "000001",   Nil})
+        aAdd(aCabec, {"C5_LOJACLI",     "01",    Nil})
+        aAdd(aCabec, {"C5_LOJAENT",     "01",    Nil})
+        aAdd(aCabec, {"C5_CONDPAG",     "001",    Nil})
+        
+        For nLinha := 1 To len(aZ8Itens)
+        //aAdd(aZ8Itens,{StrZero(nItPl,2),cProd,cDesc,cUm,cLocal,cEnd,cLote,nQtde,cPesoll,cPesobl,nNumCx,nCxInc,"",cDatEnt,.F.,0.00})
+        //1-Prod,2-Desc,3-Um,4-Local,5-Lote,6-Endereço,7-Qnt,8-PesoLiquido,9-Peso Bruto,10-Num Caixas,11-Caixa inc,12-X,13-Data Entrega
+            aLinha := {}
+            aadd(aLinha,{"C6_ITEM",    StrZero(nLinha,2), Nil})
+            
+            aadd(aLinha,{"C6_PRODUTO", aZ8Itens[nLinha,1],        Nil})
+
+            aAdd(aLinha,{"C6_UM", aZ8Itens[nLinha,3],NiL})
+
+            aAdd(aLinha,{"C6_DESC",aZ8Itens[nLinha,2],NiL})
+
+            aadd(aLinha,{"C6_QTDVEN", aZ8Itens[nLinha,7] , Nil })
+
+            aadd(aLinha,{"C6_PRCVEN",  nPrcVen,          Nil})
+
+            aadd(aLinha,{"C6_PRUNIT",  0,          Nil})
+
+            aadd(aLinha,{"C6_VALOR",   nPrcVen*aZ8Itens[nLinha,7],  Nil})    //Preço Unitário * Quantidade
+
+            aadd(aLinha,{"C6_QTDLIB" , 0 , NiL})
+
+            //aadd(aLinha,{"C6_LOTECTL", aZ8Itens[nLinha,5],   NiL})
+            //aadd(aLinha,{"C6_LOCALIZ", aZ8Itens[nLinha,6], NiL })
+
+            aadd(aLinha,{"C6_TES",     "501",        Nil})
+
+            aadd(aItens, aLinha)
+
+        Next nLinha
+
+        nOpcX := 3 
+
+        MSExecAuto({|a, b, c, d| MATA410(a, b, c, d)}, aCabec, aItens, nOpcX, .F.)
+
+        If lMsErroAuto
+            VTAlert("Erro na inclusao..")
+            MostraErro("\system\",cDoc+".log")
+            RollBackSx8()
+
+            cDoc  := ""
+        Else
+            ConfirmSx8()
+            //VTAlert("Pedido de Venda n-"+alltrim(cDoc)+" adicionado.","Sucesso",.T.,3000)
+        Endif
+    
+    //Criaçao de 1 Pedido Produtos + 1 Pedido Embalagens
+    Elseif cTipoPd == "R"
+        //****************************************************************
+        //* Inclusao - INÍCIO                                            *
+        //****************************************************************
+        aCabec := {}
+        aItens := {}
+        aLinha := {}
+        aAdd(aCabec, {"C5_NUM",     cDoc,        Nil})
+        aAdd(aCabec, {"C5_TIPO",     "N",        Nil})
+        aAdd(aCabec, {"C5_CLIENTE",  "000001",   Nil})
+        aAdd(aCabec, {"C5_LOJACLI",     "01",    Nil})
+        aAdd(aCabec, {"C5_LOJAENT",     "01",    Nil})
+        aAdd(aCabec, {"C5_CONDPAG",     "001",    Nil})
+        
+        For nLinha := 1 To len(aZ8Itens)
+        //aAdd(aZ8Itens,{StrZero(nItPl,2),cProd,cDesc,cUm,cLocal,cEnd,cLote,nQtde,cPesoll,cPesobl,nNumCx,nCxInc,"",cDatEnt,.F.,0.00})
+        //1-Prod,2-Desc,3-Um,4-Local,5-Lote,6-Endereço,7-Qnt,8-PesoLiquido,9-Peso Bruto,10-Num Caixas,11-Caixa inc,12-X,13-Data Entrega
+            aLinha := {}
+            aadd(aLinha,{"C6_ITEM",    StrZero(nLinha,2), Nil})
+            
+            aadd(aLinha,{"C6_PRODUTO", aZ8Itens[nLinha,1],        Nil})
+
+            aAdd(aLinha,{"C6_UM", aZ8Itens[nLinha,3],NiL})
+
+            aAdd(aLinha,{"C6_DESC",aZ8Itens[nLinha,2],NiL})
+
+            aadd(aLinha,{"C6_QTDVEN", aZ8Itens[nLinha,7] , Nil })
+
+            aadd(aLinha,{"C6_PRCVEN",  nPrcVen,          Nil})
+
+            aadd(aLinha,{"C6_PRUNIT",  0,          Nil})
+
+            aadd(aLinha,{"C6_VALOR",   nPrcVen*aZ8Itens[nLinha,7],  Nil})    //Preço Unitário * Quantidade
+
+            aadd(aLinha,{"C6_QTDLIB" , 0 , NiL})
+
+            //aadd(aLinha,{"C6_LOTECTL", aZ8Itens[nLinha,5],   NiL})
+            //aadd(aLinha,{"C6_LOCALIZ", aZ8Itens[nLinha,6], NiL })
+
+            aadd(aLinha,{"C6_TES",     "501",        Nil})
+
+            aadd(aItens, aLinha)
+
+        Next nLinha
+
+        nOpcX := 3 
+
+        MSExecAuto({|a, b, c, d| MATA410(a, b, c, d)}, aCabec, aItens, nOpcX, .F.)
+
+        If lMsErroAuto
+            VTAlert("Erro na inclusao..")
+            MostraErro("\system\",cDoc+".log")
+            RollBackSx8()
+
+            cDoc  := ""
+        Else
+            ConfirmSx8()
+            //VTAlert("Pedido de Venda n-"+alltrim(cDoc)+" adicionado.","Sucesso",.T.,3000)
+        Endif
+    Endif
+
+Return cDoc
 
 //////////////////////////////////////////////////////////////////////////
 //Funï¿½ï¿½o TelaSZ8()                                                      //
@@ -716,26 +1456,29 @@ Return
 Static Function TelaSZ8(aZ8Itens)
     Local q
     Private nConte := 01 //contagem de cada item adicionado
-    //VTALERT("BREAKPOINT Z8-1")
-    //VTALERT("Distribuicao Lote x End","Info",.T.,2000)
+
     nMaxIncV := len(aZ8Itens)
     aPrep    := Array(nMaxIncV,8)
     aItx := {}
     //VTALERT("BREAKPOINT Z8-2-"+alltrim(str(nMaxIncV)))
     
-     
+    
     For q:= 1 to nMaxIncV
-        //Transform(aZ8Itens[q,7],"@R 99999999999.9999")
-        //VTALERT("BREAKPOINT Z8-3")
-        //VTALERT("aZ8Itens5:"+aZ8Itens[q,5])
+    
+        //1-Prod,2-Desc,3-Um,4-Local,5-Lote,6-Endereço,7-Qnt,8-PesoLiquido,9-Peso Bruto,10-Num Caixas,11-Caixa inc,12-X,13-Data Entrega
+        
+        //1-Item,2-Prod,3-Desc,4-Um,5-Armz,6-Lote,7-Endereço,8-Qnt,9-Peso Liq,10-Peso bruto
+        //VTAlert("Teste valtype:"+valtype(aZ8Itens[q,7]))
+        //VTAlert("Teste:"+aZ8Itens[q,7])
+        //VTAlert("Teste Bnf:"+Transform(aZ8Itens[q,7],"@R 99999999999.9999"))
+        
         aPrep[q] := {strZero(nConte,2),aZ8Itens[q,1],aZ8Itens[q,2],aZ8Itens[q,3],aZ8Itens[q,4],aZ8Itens[q,5],aZ8Itens[q,6],Transform(aZ8Itens[q,7],"@R 99999999999.9999"),Transform(aZ8Itens[q,8],"@R 99999999999.999"),Transform(aZ8Itens[q,9],"@R 99999999999.999")}
         Aadd(aItx,aPrep[q])
         nConte++
-        //VTALERT("BREAKPOINT Z8-4")
+
     End
 
     If nMaxIncV > 0
-        //VTALERT("BREAKPOINT Z8-4")
         aCab := {"Item    ","Produto","Descricao                ","UM         ","Armz   ","Lote    ","Endereco     ","Qnt    ","Peso Liquido    ","Peso Bruto    "} 
         aSize:= {2,TamSx3("B1_COD")[1],TamSx3("B1_DESC")[1],TamSx3("B1_UM")[1],4,TamSx3("B8_LOTECTL")[1],TamSx3("BF_LOCALIZ")[1],18,18,18}   
         nPos := 1 
@@ -744,6 +1487,7 @@ Static Function TelaSZ8(aZ8Itens)
         VTCLEAR()
     Else
         VTALERT("Menu de itens adicionados vazio. Pressione ENTER para prosseguir.","Itens Adicionados",.T.)
+        nChoose := NiL
         VTCLEAR()
     Endif
 
@@ -823,7 +1567,7 @@ Static Function LxEMxEst(cCodMP)
         TMP->(Dbclosearea())
     ENDIF
 
-    cQry := "SELECT DISTINCT BF_PRODUTO AS B8_PRODUTO,BF_LOTECTL AS B8_LOTECTL,BF_LOCALIZ,BF_QUANT AS B8_SALDO FROM "+RETSQLNAME("SBF")+" AS SBF WHERE BF_PRODUTO = '"+cCodMP+"' AND BF_QUANT > 0 AND SBF.D_E_L_E_T_ = ' ' AND BF_LOCAL = '01' "
+    cQry := "SELECT DISTINCT BF_PRODUTO AS B8_PRODUTO,BF_LOTECTL AS B8_LOTECTL,BF_LOCALIZ,BF_QUANT AS B8_SALDO,BF_EMPENHO FROM "+RETSQLNAME("SBF")+" AS SBF WHERE BF_PRODUTO = '"+cCodMP+"' AND BF_QUANT > 0 AND SBF.D_E_L_E_T_ = ' ' AND BF_LOCAL = '01' "
     TCQUERY cQry NEW ALIAS "TMP"
     TCSETFIELD("TMP","B8_DATA","D",8,0)
 
@@ -837,7 +1581,6 @@ Static Function LxEMxEst(cCodMP)
 
     TMP->(dbclosearea())
 
-
 Return nMxEst
 
 
@@ -847,7 +1590,7 @@ Return nMxEst
 //ï¿½A funï¿½ï¿½o realiza consulta na query de lote x endereï¿½o com filtragem por lotes mais antigos por primeiro. //
 //ï¿½Posteriormente a funï¿½ï¿½o realiza a escolha das linhas  atï¿½ que a quantidade total seja batida.
 //ï¿½As linhas podem entrar na Z8 de forma desmembrada. (mesmo produto porï¿½m com as quantidades desmbembradas)
-
+///////////////
 
 
 Static Function LxEDistr(cCodMP,nQntprv,cAliasNam,cItemOrig)
@@ -935,7 +1678,7 @@ Static Function LxEDistr(cCodMP,nQntprv,cAliasNam,cItemOrig)
                     //* lCntcInc := Se caixa incompleta estiver ativado
                     //* Realizará contagem das caixas incompletas
                     If lCntCInc
-                        Aadd(aZ8Itens,{cCodMp,cDesc,cUm,cArmz,(cAliasNam)->LOTE,(cAliasNam)->LOCALIZ,(cAliasNam)->SALDO,nTmpPliq,nTmpPbrt,nNumCx,nCxInc,cItemOrig,dToC(StoD(aIncVB[nChoose,4])),lCntCInc})
+                        Aadd(aZ8Itens,{cCodMp,cDesc,cUm,cArmz,(cAliasNam)->LOTE,(cAliasNam)->LOCALIZ,(cAliasNam)->SALDO,nTmpPliq,nTmpPbrt,nNumCx,nCxInc,cItemOrig,dToC(StoD(aIncVB[nChoose,4])),lCntCInc,0.00,cTes})
                     Else
                         //* Caso não esteja ativado , zera contagem das caixas incompletas. *
                         //* Solicitação Caio
@@ -944,7 +1687,7 @@ Static Function LxEDistr(cCodMP,nQntprv,cAliasNam,cItemOrig)
                             nCxInc := 0
                         Endif
                         if lAddProd != .F. //se nao puder adicionar produto.. passado pelo beepvalid()
-                            Aadd(aZ8Itens,{cCodMp,cDesc,cUm,cArmz,(cAliasNam)->LOTE,(cAliasNam)->LOCALIZ,(cAliasNam)->SALDO-nCxInc,nTmpPliq,nTmpPbrt,nNumCx,0.000,cItemOrig,dToC(StoD(aIncVB[nChoose,4])),lCntCInc})
+                            Aadd(aZ8Itens,{cCodMp,cDesc,cUm,cArmz,(cAliasNam)->LOTE,(cAliasNam)->LOCALIZ,(cAliasNam)->SALDO-nCxInc,nTmpPliq,nTmpPbrt,nNumCx,0.000,cItemOrig,dToC(StoD(aIncVB[nChoose,4])),lCntCInc,0.00,cTes})
                         endif
                     EndIf
 
@@ -969,6 +1712,7 @@ Static Function LxEDistr(cCodMP,nQntprv,cAliasNam,cItemOrig)
 		    //2-Subtrai do nCalc 
 		    //3- DbSkip()
 
+
             if lPular
                 Return  
             Endif
@@ -977,6 +1721,7 @@ Static Function LxEDistr(cCodMP,nQntprv,cAliasNam,cItemOrig)
                 (cAliasNam)->(DbSkip())
             Else
 
+                //VTALERT("Beepvalid 3 lPular:"+cValToChar(lPular))
 
                 If BeepValid(cCodMP,(cAliasNam)->SALDO,(cAliasNam)->LOTE,(cAliasNam)->LOCALIZ,nQntEmb,lCntCInc)
                     nNumcx := NoRound((cAliasNam)->SALDO / nQntEmb,0)   //caixas completas
@@ -1001,7 +1746,7 @@ Static Function LxEDistr(cCodMP,nQntprv,cAliasNam,cItemOrig)
 
                     // Se Considerar Caixas Incompletas
                     If lCntCInc
-                        Aadd(aZ8Itens,{cCodMp,cDesc,cUm,cArmz,(cAliasNam)->LOTE,(cAliasNam)->LOCALIZ,(cAliasNam)->SALDO,nTmpPliq,nTmpPbrt,nNumCx,nCxInc,cItemOrig,dToC(StoD(aIncVB[nChoose,4])),lCntCInc})
+                        Aadd(aZ8Itens,{cCodMp,cDesc,cUm,cArmz,(cAliasNam)->LOTE,(cAliasNam)->LOCALIZ,(cAliasNam)->SALDO,nTmpPliq,nTmpPbrt,nNumCx,nCxInc,cItemOrig,dToC(StoD(aIncVB[nChoose,4],.F.)),lCntCInc,0.00,cTes})
                     Else
                         
                         If Empty(nCxInc)
@@ -1009,19 +1754,11 @@ Static Function LxEDistr(cCodMP,nQntprv,cAliasNam,cItemOrig)
                         Endif
 
                         if lAddProd != .F. //Se puder adicionar produto.. passado pelo beepvalid()
-                            Aadd(aZ8Itens,{cCodMp,cDesc,cUm,cArmz,(cAliasNam)->LOTE,(cAliasNam)->LOCALIZ,(cAliasNam)->SALDO-nCxInc,nTmpPliq,nTmpPbrt,nNumCx,0.000,cItemOrig,dToC(StoD(aIncVB[nChoose,4])),lCntCInc})
+                            Aadd(aZ8Itens,{cCodMp,cDesc,cUm,cArmz,(cAliasNam)->LOTE,(cAliasNam)->LOCALIZ,(cAliasNam)->SALDO-nCxInc,nTmpPliq,nTmpPbrt,nNumCx,0.000,cItemOrig,dToC(StoD(aIncVB[nChoose,4])),lCntCInc,0.00,cTes})
                         endif
-
                     EndIf 
                     
-                    //se nao considerar caixa inc, nao pode subtrair com caixa inc do saldo de controle
-                    If !lCntCInc
-                        nCalc := nCalc  - (cAliasNam)->SALDO + nCxInc
-                    else
-                        nCalc := nCalc + (cAliasNam)->SALDO
-                    Endif
-
-
+                    nCalc := nCalc - (cAliasNam)->SALDO
                     nVolTotl := nVolTotl + nNumCx + nIncVol
                     nPlTotl  := nPlTotl+nPesoLli
                     nPbTotl  := nPbTotl+nPesoBli
@@ -1057,7 +1794,7 @@ Static Function LxEDistr(cCodMP,nQntprv,cAliasNam,cItemOrig)
                 
                 //Se considerar caixas incompletas.
                 If lCntCInc
-                    Aadd(aZ8Itens,{cCodMp,cDesc,cUm,cArmz,(cAliasNam)->LOTE,(cAliasNam)->LOCALIZ,nCalc,nTmpPliq,nTmpPbrt,nNumCx,nCxInc,cItemOrig,dToC(StoD(aIncVB[nChoose,4])),lCntCInc})
+                    Aadd(aZ8Itens,{cCodMp,cDesc,cUm,cArmz,(cAliasNam)->LOTE,(cAliasNam)->LOCALIZ,nCalc,nTmpPliq,nTmpPbrt,nNumCx,nCxInc,cItemOrig,dToC(StoD(aIncVB[nChoose,4])),lCntCInc,0.00,cTes})
                 Else
 
                     If Empty(nCxInc)
@@ -1065,7 +1802,7 @@ Static Function LxEDistr(cCodMP,nQntprv,cAliasNam,cItemOrig)
                     Endif
 
                     if lAddProd != .F. //Se puder adicionar produto.. passado pelo beepvalid()
-                        Aadd(aZ8Itens,{cCodMp,cDesc,cUm,cArmz,(cAliasNam)->LOTE,(cAliasNam)->LOCALIZ,nCalc-nCxInc,nTmpPliq,nTmpPbrt,nNumCx,0.000,cItemOrig,dToC(StoD(aIncVB[nChoose,4])),lCntCInc})
+                        Aadd(aZ8Itens,{cCodMp,cDesc,cUm,cArmz,(cAliasNam)->LOTE,(cAliasNam)->LOCALIZ,nCalc-nCxInc,nTmpPliq,nTmpPbrt,nNumCx,0.000,cItemOrig,dToC(StoD(aIncVB[nChoose,4])),lCntCInc,0.00,cTes})
                     endif
                 Endif
                 
@@ -1147,17 +1884,64 @@ Static Function BeepQr(aItens)
 Return
 
 
-//@@@@@@@@@@@@@@@@@@@@@@@@
+//@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@
 //@Funï¿½ï¿½es de validaï¿½ï¿½o:@@
-//@@@@@@@@@@@@@@@@@@@@@@@@
+//@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@
 
-//Pedido de venda
+
+//Validação Fornecedor
+Static Function ValFornec(cCodF)
+    Private lRt
+
+    If Select("SA2") > 0
+        SA2->(DbCloseArea())
+    Endif
+
+    DbSelectArea("SA2")
+    DbSetOrder(1)
+    If SA2->(DbSeek(xFilial("SA2")+cCodF+""))
+        //DbSeek retornou
+        //VTAlert("Fornecedor inexistente.")
+        lRt := .T.
+    Else
+        //DbSeek nao retornou.. 
+        //VTAlert("Fornecedor inexistente.")
+        lRt := .F.
+    Endif 
+
+
+
+Return lRt
+
+//Validação Endereço
+Static Function ValEnd(cEnd)
+    Private lRt
+
+    If Select("SBE") > 0
+        SBE->(DbCloseArea())
+    Endif
+
+    DbSelectArea("SBE")
+    DbSetOrder(9)
+    If DbSeek(xFilial("SBE")+padr(cEnd,TamSx3('BE_LOCALIZ')[1]))
+        //VTAlert("Endereco existente.")
+        Return lRt := .T.
+    Else
+        VTAlert("Endereco Inexistente.")
+        cEnd := SPACE(15)
+        Return lRt := .F.
+    Endif
+    
+Return lRt
+
+
 Static Function ValPVenda(cPVenda)
     DbSelectArea("SC6")
     DbSetOrder(1)
     If SC6->(DbSeek(xFilial("SC6")+cPVenda))
         Return .T.
     else
+        //VtAlert("Pedido de venda inválido.")
         Return .F.
     Endif
 
@@ -1416,6 +2200,9 @@ Static Function BeepValid(cZProd,cZqnt,cZlote,cZLocal,cZQntEmb,lCntCInc)
 
                         //***TIRA OS ITENS QUE NAO FORAM ADICIONADOS DA ARRAY DE TRAVA*****
                         nPosIc := aScan(aReadyad,cItemAt)
+
+
+
                         //Deleta item que nao foi adicionado da array
                         aDel(aReadyAd,nPosIc)
                         //Redimensiona o Array
@@ -1446,10 +2233,16 @@ Static Function BeepValid(cZProd,cZqnt,cZlote,cZLocal,cZQntEmb,lCntCInc)
 
                     //***TIRA OS ITENS QUE NAO FORAM ADICIONADOS DA ARRAY DE TRAVA*****
                     nPosIc := aScan(aReadyad,cItemAt)
+
+                    //Modificação 13092022 - Arinus K.
+                    //Somente se for != 0.. evita bug array index not found
+
                     //Deleta item que nao foi adicionado da array
                     aDel(aReadyAd,nPosIc)
                     //Redimensiona o Array
                     aSize(aReadyAd, Len(aReadyAd)-1)
+
+
 
                     lPular := .T.
 
@@ -1465,6 +2258,99 @@ Static Function BeepValid(cZProd,cZqnt,cZlote,cZLocal,cZQntEmb,lCntCInc)
 Return bIsBpVld
 
 
+/////////////////////////////////////////////
+//Beep QrCode na inclusao de picklist      //
+// do tipo beneficiamento                  //
+////////////////////////////////////////////
+
+Static Function BeepBnf()
+    Private lRt
+    Private cDelimit := "$"
+    Private lLp      := .T.
+    Private cUm      := "" //U.M produto
+    Private nQtEmb   := SB1->B1_QE
+    //Arrays
+    Private aBpbnf := {} //Produto, Qnt, Lote
+
+    While lLp
+        //Qr: Produto,Lote,Qnt
+        @ 0,0 VTSAY "Adicionar Item:"
+        @ 1,0 VTSAY "----------------"
+        @ 2,0 VTSAY "QR:" VTGET cBqrc 
+        VTREAD
+        VTCLEAR()
+
+        cQxProd := cBqrc
+
+        nSearch := AT(cDelimit,cQxProd)
+
+        If nSearch != 0
+            //Separação de Informações do QrCode
+            
+            //Produto
+            nAx      := AT(cDelimit,cQxProd,1)
+            cQcprod  := Substring(cQxProd,0,nAx-1) //pegando do primeiro ate o ultimo simbolo
+            cMainStr := Substring(cQxProd,nAx+1,len(cQxProd))
+            cProd    := PADR(cQcprod,TamSx3("B1_COD")[1])
+
+            //Qnt
+            nQx      := AT(cDelimit,cMainStr,1)
+            cQnt     := Substring(cMainStr,0,nQx-1)
+            cMainStr := Substring(cMainStr,nQx+1,len(cMainStr))
+            nQtde    := cQnt
+            
+            //Lote
+            nLx      := AT(cDelimit,cMainStr,1)
+            cQLote   := Substring(cMainStr,0,nLx-1)
+            cMainStr := Substring(cMainStr,nLx+1,len(cMainStr))
+            cLote    := PADR(cQLote,TamSx3("B8_LOTECTL")[1])
+
+            VTBEEP(1)
+            
+            VTALERT("Prod:"+cProd+"-Qtd:"+nQtde+"-Lote:"+cLote,"Valido",.T.,3000)
+
+            If Select("SB1") > 0
+                SB1->(DbCloseArea())
+            Endif
+            DbSelectArea("SB1")
+            DbSetOrder(1) //Filial+Cod
+            If !SB1->(DbSeek(xFilial("SB1")+cProd))
+                VTAlert("Produto nao existente.","Pressione Enter")
+                Return NiL
+            EndIf
+
+            aAdd(aBpBnf,{cProd,val(nQtde),cLote})
+            
+            //Caso o produto for adicionado..
+            lLp := .F.
+            //lRt := .T.
+
+        Else
+            //N achou..
+            VTBEEP(2)
+            VTCLEAR()
+            @ 0,0 VTSAY "QR invalido."
+            @ 1,0 VTSAY "Tentar novamente?"
+            nOp:=VTaChoice(3,0,6,VTMaxCol(),{"Sim","Nao"})
+            If nOp == 1
+                VTCLEAR()
+                cBqrc := SPACE(45)
+                VTALERT("Carregando..","Aguarde",.T.,500)
+                lLp := .T.
+            Else
+                VTALERT("Produto não será adicionado.","Aviso",.T.,3000)
+                VTCLEAR()
+                //lRt := .F.
+                lLp := .F.
+                Return NiL
+            EndIf
+
+        Endif
+
+    EndDo
+
+
+Return aBpbnf
 
 
 /////////////////////////////////////////
@@ -1475,7 +2361,7 @@ Static Function AutoEml(cNumPl,cData,cHora,cUsuario,cPddv,aZ8Insrt,cStatus)
     Local cAcnt		:= ""
 	Local cServer	:= ""
 	Local cPsw		:= ""
-    Private cCodC := ""
+    Private cCodC   := ""
 
     DbSelectArea("SC5")
     SC5->(DbSetOrder(1))
@@ -1487,18 +2373,21 @@ Static Function AutoEml(cNumPl,cData,cHora,cUsuario,cPddv,aZ8Insrt,cStatus)
     DbSelectArea("SZ7")
     SZ7->(DbSetOrder(1))
     If DbSeek(XFilial("SZ7")+cNumPL)
+
         //Qnt Volume
         If !empty(SZ7->Z7_QVOL)
             nQntVol := SZ7->Z7_QVOL
         Else
             nQntVol := 0.0000
         Endif
+
         //Total Peso Lï¿½quido
         If !empty(SZ7->Z7_PESOL)
             nPesL := SZ7->Z7_PESOL
         Else
             nPesL := 0.0000    
         Endif
+
     Endif
 
 	cAcnt		:= Alltrim(GETMV("MV_EMCONTA"))
@@ -1515,11 +2404,8 @@ Static Function AutoEml(cNumPl,cData,cHora,cUsuario,cPddv,aZ8Insrt,cStatus)
 		 MsgStop("Erro na emissao do E-mail (Conexao) !!!") 
 	Else
 		//cTo := "Arinus@NewCompton.com.br ;"
-		//cTo := "almoxarifado@msadobrasil.com.br ; Arinus@NewCompton.com.br ; fiscal@msadobrasil.com.br ; fiscal2@msadobrasil.com.br ; logistica@msadobrasil.com.br ; caio@msadobrasil.com.br ; almoxarifado2@msadobrasil.com.br;contabilidade@msadobrasil.com.br;"
-        
-        cTo := cMlTo
-
-
+		//cTo := "Arinus@NewCompton.com.br ; fiscal@msadobrasil.com.br ; fiscal2@msadobrasil.com.br ; logistica@msadobrasil.com.br ; caio@msadobrasil.com.br ; almoxarifado2@msadobrasil.com.br;"
+        cTo   := cMlTo
         cCC := ""
 		MailAuth(Alltrim(cAcnt),Alltrim(cPsw))
 		SEND MAIL FROM Alltrim(cAcnt) TO cTo CC cCC SUBJECT "[ACD]Notificação Automática - Picklist de Saída N-"+alltrim(cNumPl) BODY cHtml RESULT lResulSend
@@ -1587,7 +2473,6 @@ Static Function ObtemHtm(cNumPl,cData,cHora,cUsuario,cPddv,aZ8Insrt,cStatus)
         cRet += "<td> Faturado </td>"
     Endif
     
-
     //Natureza Operação
     If cNatOp == "V"
         cRet += "<td> Venda </td>"
@@ -1908,15 +2793,21 @@ Return
 
 ////////////////////////////////////////////////////////////////////////////////////
 // @Função: LxeTmp(cCodMP)                                                        //
-// @Desc: Cria tabela temporaria para atualização dos saldos de Lote x Endereço.  //
+// @Desc: Cria tabela temporaria para atualização dos saldos de Lote x Endereço   //
+//durante a utilização do ACD.                                                    //
 // @Retorno: Nome tabela temporaria.                                              //
 ////////////////////////////////////////////////////////////////////////////////////
 
-Static Function LxeTmp(cCodMP)
+Static Function LxeTmp(cCodMP,cPedido,cSolic)
     Local   nLoop,x    :=  0
     Private aLxeInit := {}
 
     cCodMP := PADR(cCodMP,TamSx3('B1_COD')[1])
+
+    //Conjunto de soluções para manter consistência no estoque.
+    //Adiciona o produto à array de produtos bloqueados.
+    //TravaProd(cCodMP,cPedido,cSolic)
+
     //VTALERT("BP1")
     If Empty(cCodMP)
         VTALERT("Bug LXETMP. Codigo de produto invalido. SOLUÇÃO: Contate o administrador do sistema.")
@@ -1926,11 +2817,11 @@ Static Function LxeTmp(cCodMP)
     cAliasName := "TMP_"+alltrim(cCodMP)
 
     /**Puxa estado Inicial Lote x Endereço**/
-     IF SELECT("TMP") > 0
+    IF SELECT("TMP") > 0
         TMP->(Dbclosearea())
     ENDIF
 
-    cQry := "SELECT DISTINCT BF_LOCAL,BF_PRODUTO AS B8_PRODUTO,BF_LOTECTL AS B8_LOTECTL,BF_LOCALIZ,BF_QUANT AS B8_SALDO FROM "+RETSQLNAME("SBF")+" AS SBF WHERE BF_PRODUTO = '"+cCodMP+"' AND BF_QUANT > 0 AND SBF.D_E_L_E_T_ = ' ' AND BF_LOCAL = '01' "
+    cQry := "SELECT DISTINCT BF_LOCAL,BF_PRODUTO AS B8_PRODUTO,BF_LOTECTL AS B8_LOTECTL,BF_LOCALIZ,BF_EMPENHO,BF_QUANT AS B8_SALDO FROM "+RETSQLNAME("SBF")+" AS SBF WHERE BF_PRODUTO = '"+cCodMP+"' AND BF_QUANT > 0 AND SBF.D_E_L_E_T_ = ' ' AND BF_LOCAL = '01'"
     TCQUERY cQry NEW ALIAS "TMP"
     TCSETFIELD("TMP","B8_DATA","D",8,0)
 
@@ -1938,14 +2829,10 @@ Static Function LxeTmp(cCodMP)
     TMP->(Dbgotop())
 
     While !TMP->(Eof())
-        //vtalert("b8_lotectl array alxe:"+TMP->B8_LOTECTL)
-        aAdd(aLxeInit,{TMP->BF_LOCAL,TMP->B8_PRODUTO,TMP->B8_LOTECTL,TMP->BF_LOCALIZ,TMP->B8_SALDO})
+        aAdd(aLxeInit,{TMP->BF_LOCAL,TMP->B8_PRODUTO,TMP->B8_LOTECTL,TMP->BF_LOCALIZ,TMP->B8_SALDO-TMP->BF_EMPENHO})
         TMP->(DbSkip())
-        
     EndDo 
     
-
-
     //Cria a temporária
     //Campos
     /* BF_LOCAL: C REAL 2
@@ -1966,7 +2853,6 @@ Static Function LxeTmp(cCodMP)
     aAdd(aFields, {"LOCALIZ", "C", TamSx3('BF_LOCALIZ')[1], 0})
     aAdd(aFields, {"SALDO", "N", TamSx3('B8_SALDO')[1], 2})
 
-
  
     //Define as colunas usadas
     oTempTable:SetFields( aFields )
@@ -1978,7 +2864,6 @@ Static Function LxeTmp(cCodMP)
 
     //Efetua a criação da tabela
     oTempTable:Create()
-
 
      //------------------------------------
     //Pego o alias da tabela temporária
@@ -2009,6 +2894,7 @@ Static Function LxeTmp(cCodMP)
         (cAliasName)->LOCALIZ := aLxeInit[x,4]
         (cAliasName)->SALDO   := aLxeInit[x,5]
         (cAliasName)->(DBCommit())
+        //nPubMxEst
     End
         
 
@@ -2016,7 +2902,6 @@ Static Function LxeTmp(cCodMP)
     //Retorna nome da tabela, que será posteriormente adicionado a array.
     //Em momentos que houver necessidade de uso da tabela, será utilizado a aScan
     //para pegar a posição e nome tabela
-
 
 
 Return cTableName
@@ -2044,6 +2929,7 @@ Static Function LxEMxTmp(cCodMP)
     //vtalert("LxeMxTmp")
 
     while !(cAlias)->(Eof())
+    //TMP->B8_SALDO-TMP->BF_EMPENHO-TMP->BF_XRESPL
         nSaldo := (cAlias)->SALDO
         nMxEtq += (cAlias)->SALDO
         (cAlias)->(DBSkip())
@@ -2069,17 +2955,309 @@ Static Function ClsTmp()
     For y:=1 To Len(aTmpNms)
         cAliasNt := aTmpNms[y,3]
         (cAliasNt)->(DbCloseArea())
-        //VTALERT("Alias:"+aTmpNms[y,3])
 
-/*         If Select(cAliasNt) > 0
-            VTALERT("Tabela ainda existe.. Erro")
-        Else
-            VTALERT("Alias "+alltrim(cAliasNt)+" foi fechado com sucesso.")
-        Endif */
-        
     End
+Return 
 
+
+                            
+
+/*/{Protheus.doc} chkProd(cProduto,cUser)
+    Checa no semáforo se o produto está disponível para uso para o usuário que requisitou.
+    @type  Function
+    @author Arinus Kruszynski de Oliveira
+    @since 18/07/2022
+    @version 1
+    @param param_name, param_type, param_descr
+    @return .T. para disponivel e .F. para nao disponivel
+    @see (links_or_references)
+/*/
+
+Static Function chkProd(cProduto,cUser)
+    Private lRet
+    //reset
+    cUsrsprd := ""
+    If Select("SZ9") > 0
+        SZ9->(DbCloseArea())
+    Endif
+
+    //Se existir Produto onde o usuario seja diferente do que esta manipulando o ACD.
+    cQry := "SELECT * FROM "+RETSQLNAME("SZ9")+" AS SZ9 WHERE Z9_CODMP = '"+cProduto+"' AND D_E_L_E_T_='' AND Z9_SOLIC != '"+cUser+"' "
+    TCQUERY cQry NEW ALIAS "SZ9"
+    DbSelectArea("SZ9")
+    SZ9->(DbGoTop())
+    While SZ9->(!Eof())
+        If SZ9->Z9_SOLIC != cUser
+            cUsrsprd := SZ9->Z9_SOLIC
+            Return lRet := .F.
+        Endif
+        SZ9->(DbSkip())
+    Enddo
+
+    if empty(cUsrsprd)
+        Return lRet := .T.
+    Endif
+
+
+
+Return lRet
+
+/*/{Protheus.doc} chkPdV()
+    Checa se o pedido está disponível para distribuição via ACD. (função semáforo)
+    @type  Function
+    @author Arinus Kruszynski de Oliveira
+    @since 18/07/2022
+    @version 1
+    @param param_name, param_type, param_descr
+    @return lRet, L, Retorna .T. para produto disponível e .F. para produto não disponível.
+    @example
+    (examples)
+    @see (links_or_references)
+    /*/
+Static Function chkPdv(cPedido)
+    Private lRet := .F.
+
+    If Select("SZ9")
+        SZ9->(DbCloseArea())
+    Endif
+
+    DbSelectArea("SZ9")
+    SZ9->(DbSetOrder(2)) // 1-Filial+Pedido+Produto 2-Pedido   3-   4-
+    If DbSeek(xFilial("SZ9")+cPedido)
+        SZ9->(DbGoTop())
+        //Pedido não disponível
+
+        cUsrss := SZ9->Z9_SOLIC
+        
+
+        lRet := .F.
+    Else
+        //Pedido disponível
+        lRet := .T.
+    Endif
+
+Return lRet
+
+/*/{Protheus.doc} Trava Ped(cPedido,cSolic)
+    Adiciona registro ao semáforo do picklist de saída ACD.
+    @type  Function
+    @author Arinus K.
+    @since 18/07/2022
+    @version 1
+    @param Pedido,Produto,Solicitante
+    @return lRet
+/*/
+
+//
+
+Static Function TravaPed(cPedido,cSolic)
+    Private lRet
+
+    //SZ9 -> Adiciona registro ao semáforo do picklist de saída.
+    DbSelectArea("SZ9")
+    SZ9->(DbGoBottom())
+    //SZ9->(DbGoTop())
+    Reclock("SZ9",.T.)
+    REPLACE Z9_FILIAL with xFilial("SZ9")
+    REPLACE Z9_PEDIDO with cPedido
+    REPLACE Z9_SOLIC with cSolic
+    REPLACE Z9_DATA with Date()
+    SZ9->(MsUnlock())
+    aAdd(aRecnz9,{SZ9->(Recno())}) //salva recno para retirar os semáforos depois..
+    SZ9->(DbCloseArea())
+
+Return
+
+/*/{Protheus.doc} TravaProd
+    Trava produto SZ9
+    @type  Function
+    @author Arinus K
+    @since 18/07/2022
+    @version version
+    @param param_name, param_type, param_descr
+    @return return_var, return_type, return_description
+    @example
+    (examples)
+    @see (links_or_references)
+    /*/
+Static Function TravaProd(cProd,cPedido,cSolic)
+
+    //SZ9 -> Adiciona registro ao semáforo do picklist de saída.
+    If Select("SZ9") > 0
+        SZ9->(DbCloseArea())
+    Endif
+    
+    DbSelectArea("SZ9")
+    SZ9->(DbGoBottom())
+    Reclock("SZ9",.T.)
+    REPLACE Z9_FILIAL with xFilial("SZ9")
+    REPLACE Z9_PEDIDO with cPedido
+    //REPLACE Z9_CODMP with cProd
+    REPLACE Z9_CODMP WITH cProd
+    REPLACE Z9_SOLIC with cSolic
+    REPLACE Z9_DATA with Date()
+    SZ9->(MsUnlock())
+    //aAdd(aRecnz9,{SZ9->(Recno())}) //Salva recno do reg semáforo.. Utilizado para retirar os semáforo posteriormente.
+    SZ9->(DbCloseArea())
 
 Return 
 
+
+
+///////////////////////////////////////////////////////////////
+//  Funçao que adiciona a reserva os itens adicionados no PL //
+// A430Reserva+C6_XRESPL
+//Função antiga
+//////////////////////////////////////////////////////////////
+
+Static Function AdToRes(aZ8Insrt,cNumsoli,cPdVenda)
+    Local nlin
+    Local aOPERACAO := {1,"NF","",UsrRetName(),xFilial(""),cNumsoli}
+    Local cNUMERO   := ""
+    Local cPRODUTO := ""
+    Local cLOCAL    := "01"
+    Local nQUANT    := 0
+    Local aLOTE     := {"","","",""}   
+
+    Private nTemp := 0.00
+    //Private cLocal := "01" //armazem
+    Private cProdx := "" //produto
+    Private cLt   := "" //lote
+    Private cEndc := "" //endereço
+    Private cItPdv := "" //item do picklist teve origem em qual item do pedido de venda?
+    Private lRes := .F.
+
+
+    For nlin:=1 to len(aZ8Insrt)
+        
+        //A linha deve ser empenhada em todos os campos necessários, ou nada entra
+        //como empenho e o Z8_QTDEMP fica como 0.
+            cProdx   := aZ8Insrt[nlin,1]
+            cLt      := aZ8Insrt[nlin,5]
+            cEndc    := aZ8Insrt[nlin,6]
+            cItPdv   := aZ8Insrt[nlin,12]
+
+            //Vars A430Reserv
+            cNUMERO  := GETSXENUM("SC0","C0_NUM") 
+            cPRODUTO := cProdx
+            nQUANT   := aZ8Insrt[nlin,7] 
+            aLOTE    := {"",cLt,cEndc,""}
+
+            If !A430Reserv(aOPERACAO,cNUMERO,cPRODUTO,cLOCAL,nQUANT,aLOTE) 
+                VTALERT("Erro ao realizar reserva. Nenhum saldo sera empenhado.")   
+                RollBackSx8()
+                Return lRes := .F. 
+            else
+                cResNum := cNumero
+                aAdd(aDocsRes,{cResNum})
+                ConfirmSX8()
+            Endif
+
+            /*Reserva Sc6*/
+            If Select("SC6")>0
+                SC6->(DbCloseArea())
+            Endif
+            DbSelectArea("SC6")
+            DbSetOrder(1)
+            If DbSeek(xFilial()+cPdVenda+cItPdv+cProdx)
+                RECLOCK("SC6",.F.)
+                REPLACE C6_XRESPL with SC6->C6_XRESPL+aZ8Insrt[nlin,7]
+                SC6->(MsUnlock())
+            Else
+                VTALERT("DbSeek SC6. Nenhum saldo será empenhado.")   
+                Return lRes := .F. 
+            Endif    
+
+    Next nlin
+
+    lRes := .T.
+     
+Return lRes
+
+
+
+
+/////////////////////////////////////////////////////////////////
+//  Adiciona reserva PL com A430Reserv(MATA430),rotina padrao //
+//  Caso o saldo adicionado à reserva esteja indisponível,    //
+//  emite mensagem de erro ao usuário e parte para proximas l //
+////////////////////////////////////////////////////////////////
+
+Static Function AdResLin(cProdx,cLote,cEnd,nQnt,cNumSoli,cItPdv,cPdVenda,cUsrsol,cItpls,cNatOp)
+    Private nlin
+    Private aOPERACAO := {1,"NF","",cUsrsol,xFilial(),cNumsoli}
+    Private cNUMERO   := ""
+    Private cPRODUTO := ""
+    Private cLOCAL    := "01"
+    Private nQUANT    := 0
+    Private aLOTE     := {"","","",""} 
+    Private lxA       := .F. 
+    Private lxB       := .F.
+    Private lRes      := .F.
+
+    //Vars A430Reserv
+    cNUMERO  := GETSXENUM("SC0","C0_NUM") 
+    cPRODUTO := padr(alltrim(cProdx),TamSx3('B1_COD')[1])
+    nQUANT   := nQnt
+    aLOTE    := {"",cLote,cEnd,""}
+
+    A430Reserv(aOPERACAO,cNUMERO,cPRODUTO,cLOCAL,nQUANT,aLOTE)
+
+    If Select("SC0")>0
+        SC0->(DbCloseArea())
+    Endif
+
+    DbSelectArea("SC0")
+    DbSetOrder(1)
+    //Se a reserva foi efetuada com sucesso..
+    If DbSeek(xFilial("SC0")+cNumero+cProdx+cLocal)
+        cResNum := cNumero
+        cDoc := cResNum
+        ConfirmSX8()
+        lXa := .T.
+
+    Else
+        //Quanto erro ao realizar reserva
+        //VTALERT("Erro ao realizar reserva. Nenhum saldo sera empenhado.")   
+        RollBackSx8()
+        Return lRes := .F. 
+    Endif
+
+    //Se venda..
+    If cNatOp == "V"
+        /*Reserva Sc6*/
+        If Select("SC6")>0
+            SC6->(DbCloseArea())
+        Endif
+        DbSelectArea("SC6")
+        DbSetOrder(1)
+        If DbSeek(xFilial()+cPdVenda+cItPdv+cProdx)
+            RECLOCK("SC6",.F.)
+            REPLACE C6_XRESPL with SC6->C6_XRESPL+nQnt
+            SC6->(MsUnlock())
+            
+            lxB := .T.
+        Else
+            VTALERT("DbSeek SC6. Nenhum saldo será empenhado.")   
+            Return lRes := .F. 
+        Endif
+       
+        //se adicionou os dois
+        If lxA .AND. lxB
+            lRes := .T.
+        else
+            lRes := .F.
+        Endif
+
+    //Se beneficiamento..
+    Elseif cNatOp == "B"
+        If lxA
+            lRes := .T.
+        Else
+            lRes := .F.
+        Endif
+    Endif
+
+     
+Return lRes
 
